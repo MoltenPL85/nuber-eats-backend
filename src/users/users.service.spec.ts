@@ -207,6 +207,7 @@ describe('UserService', () => {
   describe('editProfile', () => {
     it('should change email', async () => {
       const oldUser = {
+        id: 1,
         email: 'mail@old.com',
         verified: true,
       };
@@ -220,21 +221,30 @@ describe('UserService', () => {
         code: 'code',
       };
       const newUser = {
+        id: 1,
         verified: false,
         email: editProfileArgs.input.email,
       };
 
-      usersRepository.findOne.mockResolvedValue(oldUser);
+      usersRepository.findOne.mockResolvedValueOnce(oldUser);
+      usersRepository.findOne.mockResolvedValueOnce(null);
       verificationsRepository.create.mockReturnValue(newVerification);
       verificationsRepository.save.mockResolvedValue(newVerification);
 
       await service.editProfile(editProfileArgs.userId, editProfileArgs.input);
 
-      expect(usersRepository.findOne).toHaveBeenCalledTimes(1);
+      expect(usersRepository.findOne).toHaveBeenCalledTimes(2);
       expect(usersRepository.findOne).toHaveBeenCalledWith(
         editProfileArgs.userId,
       );
+      expect(usersRepository.findOne).toHaveBeenCalledWith({
+        email: editProfileArgs.input.email,
+      });
 
+      expect(verificationsRepository.delete).toHaveBeenCalledTimes(1);
+      expect(verificationsRepository.delete).toHaveBeenCalledWith({
+        user: { id: oldUser.id },
+      });
       expect(verificationsRepository.create).toHaveBeenCalledWith({
         user: newUser,
       });
@@ -242,10 +252,44 @@ describe('UserService', () => {
         newVerification,
       );
 
+      expect(mailService.sendVerificationEmail).toHaveBeenCalledTimes(1);
       expect(mailService.sendVerificationEmail).toHaveBeenLastCalledWith(
         newUser.email,
         newVerification.code,
       );
+    });
+
+    it('should fail if email already exists', async () => {
+      const oldUser = {
+        id: 1,
+        email: 'mail@old.com',
+        verified: true,
+      };
+
+      const existingUser = {
+        id: 2,
+        email: 'mail@new.com',
+        verified: true,
+      };
+
+      const editProfileArgs = {
+        userId: 1,
+        input: {
+          email: 'mail@new.com',
+        },
+      };
+
+      usersRepository.findOne.mockResolvedValueOnce(oldUser);
+      usersRepository.findOne.mockResolvedValueOnce(existingUser);
+
+      const result = await service.editProfile(
+        editProfileArgs.userId,
+        editProfileArgs.input,
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        error: 'There is a user with that email already',
+      });
     });
 
     it('should change password', async () => {
